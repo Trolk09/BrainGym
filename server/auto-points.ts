@@ -14,7 +14,7 @@ function getRandomPoints(): number {
  * Starts a per-session auto-award system.
  * Returns a cleanup function that stops the timer.
  */
-export function startSessionAutoPoints(username: string) {
+export function startAutoPointAward(username: string) {
   console.log(`🎯 Auto-point session started for ${username}`);
 
   const intervalId = setInterval(async () => {
@@ -27,7 +27,7 @@ export function startSessionAutoPoints(username: string) {
     }
   }, AUTO_AWARD_INTERVAL);
 
-  // return a function to stop this loop
+  // Return a function to stop this loop
   return () => {
     clearInterval(intervalId);
     console.log(`🛑 Auto-point session stopped for ${username}`);
