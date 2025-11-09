@@ -1,8 +1,8 @@
 import { storage } from "./storage";
 
 const AUTO_AWARD_INTERVAL = 10 * 1000; // 10 seconds in milliseconds
-const MIN_POINTS = 40;
-const MAX_POINTS = 79;
+const MIN_POINTS = 10;
+const MAX_POINTS = 29;
 
 function getRandomPoints(): number {
   return Math.floor(Math.random() * (MAX_POINTS - MIN_POINTS + 1)) + MIN_POINTS;
