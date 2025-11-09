@@ -25,7 +25,7 @@ export default function Home() {
   );
   const [showUsernameDialog, setShowUsernameDialog] = useState(!username);
   const [tempUsername, setTempUsername] = useState("");
-  
+
   const { data: totalPoints, isLoading: isLoadingPoints } = useUserPoints(username);
 
   const initializeUserMutation = useMutation({
@@ -39,12 +39,11 @@ export default function Home() {
       localStorage.setItem("brainGymUsername", tempUsername.trim());
       setUsername(tempUsername.trim());
       setShowUsernameDialog(false);
-      
+
       // Initialize user on leaderboard to enable auto-rewards
       try {
         await initializeUserMutation.mutateAsync(tempUsername.trim());
       } catch (error) {
-        // User might already exist, which is fine
         console.log("User initialization:", error);
       }
     }
@@ -53,7 +52,8 @@ export default function Home() {
   const exercisesList = Object.values(EXERCISES);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen flex flex-col bg-background">
+      {/* Header */}
       <header className="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -70,13 +70,20 @@ export default function Home() {
             </div>
             <div className="flex items-center gap-4">
               {username && (
-                <Badge variant="secondary" className="text-lg px-4 py-2" data-testid="badge-total-points">
+                <Badge
+                  variant="secondary"
+                  className="text-lg px-4 py-2"
+                  data-testid="badge-total-points"
+                >
                   {isLoadingPoints ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <>
                       <span className="text-muted-foreground">Points:</span>
-                      <span className="ml-2 font-bold text-foreground" data-testid="text-total-points">
+                      <span
+                        className="ml-2 font-bold text-foreground"
+                        data-testid="text-total-points"
+                      >
                         {totalPoints || 0}
                       </span>
                     </>
@@ -106,7 +113,8 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="container mx-auto px-6 py-12">
+      {/* Main Content */}
+      <main className="container mx-auto px-6 py-12 flex-grow">
         <div className="mb-12 text-center">
           <h2 className="mb-4 text-5xl font-bold text-foreground">
             Choose Your Exercise!
@@ -151,6 +159,17 @@ export default function Home() {
         </div>
       </main>
 
+      {/* Credits Footer */}
+      <footer className="border-t py-4 bg-card/70 backdrop-blur-sm text-center text-sm text-muted-foreground">
+        <p>
+          © {new Date().getFullYear()} Brain Gym · Built with ❤️ by{" "}
+          <span className="font-medium text-foreground">
+            Divyam(Team Leader), Prikshit, Rishabh, Sumit & Ritish
+          </span>
+        </p>
+      </footer>
+
+      {/* Username Dialog */}
       <Dialog open={showUsernameDialog} onOpenChange={setShowUsernameDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
