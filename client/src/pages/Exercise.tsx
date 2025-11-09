@@ -9,6 +9,7 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { getExerciseIcon } from "@/lib/icons";
 import { useUserPoints } from "@/hooks/use-user-points";
+import { startSessionAutoPoints } from "@/lib/auto-points";
 
 export default function Exercise() {
   const [, params] = useRoute("/exercise/:exerciseId");
@@ -17,13 +18,13 @@ export default function Exercise() {
   const exercise = EXERCISES[exerciseId];
 
   const [stream, setStream] = useState<MediaStream | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [sessionPoints, setSessionPoints] = useState(0);
   const [timeLeft, setTimeLeft] = useState(60);
-  const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null);
-
   const videoRef = useRef<HTMLVideoElement>(null);
-  const username = localStorage.getItem("brainGymUsername") || "";
+  const stopAutoPointsRef = useRef<() => void | null>(null);
 
+  const username = localStorage.getItem("brainGymUsername") || "";
   const { data: totalPoints, isLoading: isLoadingPoints, refetch } = useUserPoints(username);
 
   // Redirect if no username
@@ -54,50 +55,78 @@ export default function Exercise() {
     startCamera();
     return () => {
       if (stream) stream.getTracks().forEach((t) => t.stop());
-      stopExercise();
     };
   }, [exercise, setLocation]);
 
-  // Mutation to add points
+  // Save points to leaderboard when exercise ends
   const addPointsMutation = useMutation({
     mutationFn: async (pointsToAdd: number) => {
-      return apiRequest("POST", "/api/leaderboard", { username, pointsToAdd });
+      await apiRequest("POST", "/api/leaderboard", { username, pointsToAdd });
     },
     onSuccess: () => refetch(),
   });
 
-  // Start exercise
-  const startExercise = () => {
-    if (isRunning) return;
-    setIsRunning(true);
-    setTimeLeft(60);
+  // Timer countdown
+  useEffect(() => {
+    if (!isCapturing || timeLeft <= 0) return;
 
-    const id = setInterval(() => {
+    const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
-          stopExercise();
+          handleStopCapture();
+          handleFinishExercise();
           return 0;
         }
-
-        // Give random points every 15 seconds
-        if ((prev - 1) % 15 === 0) {
-          const randomPoints = Math.floor(Math.random() * 40) + 40;
-          addPointsMutation.mutate(randomPoints);
-        }
-
         return prev - 1;
       });
     }, 1000);
 
-    setIntervalId(id);
+    return () => clearInterval(timer);
+  }, [isCapturing, timeLeft]);
+
+  // --- Handlers ---
+  const handleStartCapture = () => {
+    setIsCapturing(true);
+    setSessionPoints(0);
+    setTimeLeft(60);
+
+    // start random auto-points
+    stopAutoPointsRef.current = startSessionAutoPoints(username);
+
+    // locally track points every 15s (sync with auto-points)
+    const localInterval = setInterval(() => {
+      if (!isCapturing) {
+        clearInterval(localInterval);
+        return;
+      }
+      const random = Math.floor(Math.random() * (79 - 40 + 1)) + 40;
+      setSessionPoints((prev) => prev + random);
+    }, 15000);
+
+    stopAutoPointsRef.current = () => {
+      clearInterval(localInterval);
+      if (stopAutoPointsRef.current) {
+        stopAutoPointsRef.current();
+      }
+    };
   };
 
-  // Stop exercise manually or on timer end
-  const stopExercise = () => {
-    if (intervalId) clearInterval(intervalId);
-    setIntervalId(null);
-    setIsRunning(false);
-    refetch(); // update leaderboard
+  const handleStopCapture = () => {
+    setIsCapturing(false);
+    if (stopAutoPointsRef.current) {
+      stopAutoPointsRef.current();
+      stopAutoPointsRef.current = null;
+    }
+  };
+
+  const handleFinishExercise = async () => {
+    handleStopCapture();
+    if (sessionPoints > 0) {
+      await addPointsMutation.mutateAsync(sessionPoints);
+      setLocation(`/results/${exerciseId}/${sessionPoints}`);
+    } else {
+      setLocation("/");
+    }
   };
 
   if (!exercise) return null;
@@ -113,7 +142,7 @@ export default function Exercise() {
               Back to Exercises
             </Button>
             <div className="flex items-center gap-4">
-              {isRunning && (
+              {isCapturing && (
                 <Badge
                   variant={timeLeft <= 10 ? "destructive" : "default"}
                   className="text-2xl px-6 py-3 font-bold"
@@ -154,33 +183,53 @@ export default function Exercise() {
               {!stream && (
                 <div className="absolute inset-0 flex items-center justify-center bg-muted">
                   <Camera className="h-16 w-16 text-muted-foreground" />
-                  <p className="mt-4 text-lg text-muted-foreground">Starting camera...</p>
+                  <p className="mt-4 text-lg text-muted-foreground">
+                    Starting camera...
+                  </p>
                 </div>
               )}
             </div>
 
             <div className="flex justify-center gap-4">
-              {!isRunning ? (
-                <Button
-                  size="lg"
-                  onClick={startExercise}
-                  disabled={!stream}
-                  className="text-lg px-8 gap-2"
-                >
-                  <Camera className="h-5 w-5" />
-                  Start Exercise
-                </Button>
+              {!isCapturing ? (
+                <>
+                  <Button
+                    size="lg"
+                    onClick={handleStartCapture}
+                    disabled={!stream}
+                    className="text-lg px-8 gap-2"
+                  >
+                    <Camera className="h-5 w-5" />
+                    Start Exercise
+                  </Button>
+                  {sessionPoints > 0 && (
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      onClick={handleFinishExercise}
+                      className="text-lg px-8"
+                    >
+                      Finish Exercise
+                    </Button>
+                  )}
+                </>
               ) : (
                 <Button
                   size="lg"
                   variant="destructive"
-                  onClick={stopExercise}
+                  onClick={handleStopCapture}
                   className="text-lg px-8"
                 >
                   Stop Exercise
                 </Button>
               )}
             </div>
+
+            <Card className="p-6 bg-accent/10 border-accent/20 text-center text-lg">
+              {isCapturing
+                ? `🧩 Session Points: ${sessionPoints}`
+                : `You’ve earned ${sessionPoints} points this session!`}
+            </Card>
           </div>
 
           {/* Right Section */}
@@ -219,8 +268,8 @@ export default function Exercise() {
             <Card className="p-6 bg-accent/10 border-accent/20">
               <h3 className="text-lg font-bold mb-3">💡 Tip</h3>
               <p className="text-base text-muted-foreground leading-relaxed">
-                Make sure you’re in a well-lit area and visible on camera.
-                You’ll earn random points every 15 seconds while exercising!
+                Stay visible in the camera and move freely — your session points
+                will grow automatically every few seconds!
               </p>
             </Card>
           </div>
