@@ -1,4 +1,4 @@
-// auto-points.ts — scoped auto-points for active exercises only
+// auto-points.ts — safe passive point awarding system
 
 import { storage } from "./storage";
 
@@ -19,9 +19,16 @@ export function startAutoPointAward(username: string) {
 
   const intervalId = setInterval(async () => {
     try {
+      // ✅ Check if user exists before awarding
+      const exists = await storage.hasUser?.(username) ?? true; // assume true if no method
+      if (!exists) {
+        console.warn(`⚠️ Skipping auto-points — user "${username}" not found`);
+        return;
+      }
+
       const points = getRandomPoints();
       await storage.addPassivePoints(username, points);
-      console.log(`✨ +${points} random points to ${username}`);
+      console.log(`✨ +${points} passive points to ${username}`);
     } catch (err) {
       console.error("❌ Error adding auto-points:", err);
     }
