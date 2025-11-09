@@ -1,13 +1,12 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { EXERCISES, type ExerciseType } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Camera, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { ArrowLeft, Camera, Loader2 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import type { ExerciseValidationResponse } from "@shared/schema";
 import { getExerciseIcon } from "@/lib/icons";
 import { useUserPoints } from "@/hooks/use-user-points";
 
@@ -18,22 +17,21 @@ export default function Exercise() {
   const exercise = EXERCISES[exerciseId];
 
   const [stream, setStream] = useState<MediaStream | null>(null);
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [lastValidation, setLastValidation] = useState<ExerciseValidationResponse | null>(null);
-  const [sessionPoints, setSessionPoints] = useState(0);
+  const [isRunning, setIsRunning] = useState(false);
   const [timeLeft, setTimeLeft] = useState(60);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null);
 
+  const videoRef = useRef<HTMLVideoElement>(null);
   const username = localStorage.getItem("brainGymUsername") || "";
-  const { data: totalPoints, isLoading: isLoadingPoints } = useUserPoints(username);
+
+  const { data: totalPoints, isLoading: isLoadingPoints, refetch } = useUserPoints(username);
 
   // Redirect if no username
   useEffect(() => {
     if (!username) setLocation("/");
   }, [username, setLocation]);
 
-  // Initialize camera
+  // Initialize webcam
   useEffect(() => {
     if (!exercise) {
       setLocation("/");
@@ -56,89 +54,50 @@ export default function Exercise() {
     startCamera();
     return () => {
       if (stream) stream.getTracks().forEach((t) => t.stop());
+      stopExercise();
     };
   }, [exercise, setLocation]);
 
-  // --- Validation mutation ---
-  const validateMutation = useMutation({
-    mutationFn: async (imageData: string) => {
-      const response = await apiRequest("POST", "/api/exercises/validate", {
-        exerciseType: exerciseId,
-        imageData,
-        username,
-      });
-      return (await response.json()) as ExerciseValidationResponse;
+  // Mutation to add points
+  const addPointsMutation = useMutation({
+    mutationFn: async (pointsToAdd: number) => {
+      return apiRequest("POST", "/api/leaderboard", { username, pointsToAdd });
     },
-    onSuccess: (data) => {
-      setLastValidation(data);
-      if (data.isCorrect && isCapturing) {
-        // ✅ only count points while session is active
-        setSessionPoints((prev) => prev + data.pointsEarned);
-      }
-    },
+    onSuccess: () => refetch(),
   });
 
-  // --- Capture frame ---
-  const captureFrame = useCallback(() => {
-    if (!isCapturing) return; // ✅ prevents auto-capture on load
-    if (!videoRef.current || !canvasRef.current || validateMutation.isPending) return;
+  // Start exercise
+  const startExercise = () => {
+    if (isRunning) return;
+    setIsRunning(true);
+    setTimeLeft(60);
 
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const context = canvas.getContext("2d");
-    if (!context || video.readyState !== video.HAVE_ENOUGH_DATA) return;
-
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    const imageData = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
-    validateMutation.mutate(imageData);
-  }, [isCapturing, validateMutation]);
-
-  // --- Capture interval ---
-  useEffect(() => {
-    if (!isCapturing) return;
-    const interval = setInterval(captureFrame, 3000);
-    return () => clearInterval(interval);
-  }, [isCapturing, captureFrame]);
-
-  // --- Timer ---
-  useEffect(() => {
-    if (!isCapturing || timeLeft <= 0) return;
-
-    const timer = setInterval(() => {
+    const id = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
-          handleStopCapture();
+          stopExercise();
           return 0;
         }
+
+        // Give random points every 15 seconds
+        if ((prev - 1) % 15 === 0) {
+          const randomPoints = Math.floor(Math.random() * 40) + 40;
+          addPointsMutation.mutate(randomPoints);
+        }
+
         return prev - 1;
       });
     }, 1000);
-    return () => clearInterval(timer);
-  }, [isCapturing, timeLeft]);
 
-  // --- Start / Stop / Finish ---
-  const handleStartCapture = () => {
-    setIsCapturing(true);
-    setSessionPoints(0);
-    setLastValidation(null);
-    setTimeLeft(60);
+    setIntervalId(id);
   };
 
-  const handleStopCapture = () => {
-    setIsCapturing(false);
-    setLastValidation(null);
-  };
-
-  const handleFinishExercise = () => {
-    setIsCapturing(false);
-    if (sessionPoints > 0) {
-      setLocation(`/results/${exerciseId}/${sessionPoints}`);
-    } else {
-      setLocation("/");
-    }
+  // Stop exercise manually or on timer end
+  const stopExercise = () => {
+    if (intervalId) clearInterval(intervalId);
+    setIntervalId(null);
+    setIsRunning(false);
+    refetch(); // update leaderboard
   };
 
   if (!exercise) return null;
@@ -149,16 +108,12 @@ export default function Exercise() {
       <header className="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              onClick={() => setLocation("/")}
-              className="gap-2"
-            >
+            <Button variant="ghost" onClick={() => setLocation("/")} className="gap-2">
               <ArrowLeft className="h-5 w-5" />
               Back to Exercises
             </Button>
             <div className="flex items-center gap-4">
-              {isCapturing && (
+              {isRunning && (
                 <Badge
                   variant={timeLeft <= 10 ? "destructive" : "default"}
                   className="text-2xl px-6 py-3 font-bold"
@@ -199,90 +154,33 @@ export default function Exercise() {
               {!stream && (
                 <div className="absolute inset-0 flex items-center justify-center bg-muted">
                   <Camera className="h-16 w-16 text-muted-foreground" />
-                  <p className="mt-4 text-lg text-muted-foreground">
-                    Starting camera...
-                  </p>
-                </div>
-              )}
-              {validateMutation.isPending && (
-                <div className="absolute inset-0 flex items-center justify-center bg-background/50 backdrop-blur-sm">
-                  <div className="bg-card rounded-2xl p-6 shadow-xl text-center">
-                    <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
-                    <p className="mt-4 text-lg font-semibold">
-                      Checking your form...
-                    </p>
-                  </div>
+                  <p className="mt-4 text-lg text-muted-foreground">Starting camera...</p>
                 </div>
               )}
             </div>
 
-            <canvas ref={canvasRef} className="hidden" />
-
             <div className="flex justify-center gap-4">
-              {!isCapturing ? (
-                <>
-                  <Button
-                    size="lg"
-                    onClick={handleStartCapture}
-                    disabled={!stream}
-                    className="text-lg px-8 gap-2"
-                  >
-                    <Camera className="h-5 w-5" />
-                    Start Exercise
-                  </Button>
-                  {sessionPoints > 0 && (
-                    <Button
-                      size="lg"
-                      variant="outline"
-                      onClick={handleFinishExercise}
-                      className="text-lg px-8"
-                    >
-                      Finish Exercise
-                    </Button>
-                  )}
-                </>
+              {!isRunning ? (
+                <Button
+                  size="lg"
+                  onClick={startExercise}
+                  disabled={!stream}
+                  className="text-lg px-8 gap-2"
+                >
+                  <Camera className="h-5 w-5" />
+                  Start Exercise
+                </Button>
               ) : (
                 <Button
                   size="lg"
                   variant="destructive"
-                  onClick={handleStopCapture}
+                  onClick={stopExercise}
                   className="text-lg px-8"
                 >
                   Stop Exercise
                 </Button>
               )}
             </div>
-
-            {lastValidation && (
-              <Card
-                className={`p-6 ${
-                  lastValidation.isCorrect
-                    ? "border-primary bg-primary/5"
-                    : "border-muted"
-                }`}
-              >
-                <div className="flex items-start gap-4">
-                  {lastValidation.isCorrect ? (
-                    <CheckCircle2 className="h-8 w-8 text-primary flex-shrink-0 mt-1" />
-                  ) : (
-                    <AlertCircle className="h-8 w-8 text-muted-foreground flex-shrink-0 mt-1" />
-                  )}
-                  <div className="flex-1 space-y-2">
-                    <h3 className="text-xl font-bold">
-                      {lastValidation.encouragement}
-                    </h3>
-                    <p className="text-base text-muted-foreground leading-relaxed">
-                      {lastValidation.feedback}
-                    </p>
-                    {lastValidation.isCorrect && (
-                      <Badge variant="default" className="text-base px-3 py-1">
-                        +{lastValidation.pointsEarned} points!
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </Card>
-            )}
           </div>
 
           {/* Right Section */}
@@ -321,8 +219,8 @@ export default function Exercise() {
             <Card className="p-6 bg-accent/10 border-accent/20">
               <h3 className="text-lg font-bold mb-3">💡 Tip</h3>
               <p className="text-base text-muted-foreground leading-relaxed">
-                Make sure you’re in a well-lit area and your full body is visible.
-                The AI checks your form every few seconds!
+                Make sure you’re in a well-lit area and visible on camera.
+                You’ll earn random points every 15 seconds while exercising!
               </p>
             </Card>
           </div>
