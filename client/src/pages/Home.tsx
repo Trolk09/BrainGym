@@ -164,7 +164,7 @@ export default function Home() {
         <p>
           © {new Date().getFullYear()} Brain Gym · Built with ❤️ by{" "}
           <span className="font-medium text-foreground">
-            Divyam(Team Leader), Prikshit, Rishabh, Sumit & Ritish
+            Divyam(Team Leader), Prikshit, Rishabh
           </span>
         </p>
       </footer>
