@@ -3,16 +3,39 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Trophy, Medal, Award } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import type { LeaderboardEntry } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useEffect, useState } from "react";
+
+interface LeaderboardEntry {
+  id: string;
+  username: string;
+  totalPoints: number;
+  exercisesCompleted: number;
+}
 
 export default function Leaderboard() {
-  const { data: leaderboard, isLoading } = useQuery<LeaderboardEntry[]>({
-    queryKey: ["/api/leaderboard"],
-  });
-
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[] | null>(null);
+  const [loading, setLoading] = useState(true);
   const currentUsername = localStorage.getItem("brainGymUsername") || "";
+
+  // Load leaderboard from localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem("leaderboard");
+    if (stored) {
+      setLeaderboard(JSON.parse(stored));
+    } else {
+      setLeaderboard([]);
+    }
+    setLoading(false);
+
+    // Auto-update when localStorage changes
+    const listener = () => {
+      const updated = localStorage.getItem("leaderboard");
+      if (updated) setLeaderboard(JSON.parse(updated));
+    };
+    window.addEventListener("storage", listener);
+    return () => window.removeEventListener("storage", listener);
+  }, []);
 
   const getRankIcon = (rank: number) => {
     switch (rank) {
@@ -45,12 +68,7 @@ export default function Leaderboard() {
       <header className="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              asChild
-              className="gap-2"
-              data-testid="button-back"
-            >
+            <Button variant="ghost" asChild className="gap-2">
               <Link href="/">
                 <ArrowLeft className="h-5 w-5" />
                 Back to Exercises
@@ -72,11 +90,11 @@ export default function Leaderboard() {
               Top Brain Champions!
             </h1>
             <p className="text-xl text-muted-foreground leading-relaxed">
-              See who's earning the most points doing brain exercises
+              See who’s earning the most points doing brain exercises
             </p>
           </div>
 
-          {isLoading ? (
+          {loading ? (
             <div className="space-y-4">
               {[1, 2, 3, 4, 5].map((i) => (
                 <Card key={i} className="p-6">
@@ -106,56 +124,58 @@ export default function Leaderboard() {
             </Card>
           ) : (
             <div className="space-y-4">
-              {leaderboard.map((entry, index) => {
-                const rank = index + 1;
-                const isCurrentUser = entry.username === currentUsername;
-                const isTopThree = rank <= 3;
+              {leaderboard
+                .sort((a, b) => b.totalPoints - a.totalPoints)
+                .map((entry, index) => {
+                  const rank = index + 1;
+                  const isCurrentUser = entry.username === currentUsername;
+                  const isTopThree = rank <= 3;
 
-                return (
-                  <Card
-                    key={entry.id}
-                    className={`p-6 transition-all ${
-                      isCurrentUser ? "ring-2 ring-primary bg-primary/5" : ""
-                    } ${isTopThree ? "shadow-lg" : ""}`}
-                    data-testid={`card-leaderboard-${rank}`}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-muted">
-                        {getRankIcon(rank) || (
-                          <span className="text-lg font-bold text-foreground">
-                            #{rank}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="text-xl font-bold text-foreground truncate">
-                            {entry.username}
-                          </h3>
-                          {isCurrentUser && (
-                            <Badge variant="default" className="text-xs">
-                              You
-                            </Badge>
+                  return (
+                    <Card
+                      key={entry.id}
+                      className={`p-6 transition-all ${
+                        isCurrentUser ? "ring-2 ring-primary bg-primary/5" : ""
+                      } ${isTopThree ? "shadow-lg" : ""}`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-muted">
+                          {getRankIcon(rank) || (
+                            <span className="text-lg font-bold text-foreground">
+                              #{rank}
+                            </span>
                           )}
                         </div>
-                        <p className="text-sm text-muted-foreground">
-                          {entry.exercisesCompleted} exercise{entry.exercisesCompleted !== 1 ? "s" : ""} completed
-                        </p>
-                      </div>
 
-                      <div className="flex flex-col items-end gap-2">
-                        <Badge
-                          variant={getRankBadgeVariant(rank)}
-                          className="text-lg px-4 py-1.5 font-bold"
-                        >
-                          {entry.totalPoints} pts
-                        </Badge>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="text-xl font-bold text-foreground truncate">
+                              {entry.username}
+                            </h3>
+                            {isCurrentUser && (
+                              <Badge variant="default" className="text-xs">
+                                You
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {entry.exercisesCompleted} exercise
+                            {entry.exercisesCompleted !== 1 ? "s" : ""} completed
+                          </p>
+                        </div>
+
+                        <div className="flex flex-col items-end gap-2">
+                          <Badge
+                            variant={getRankBadgeVariant(rank)}
+                            className="text-lg px-4 py-1.5 font-bold"
+                          >
+                            {entry.totalPoints} pts
+                          </Badge>
+                        </div>
                       </div>
-                    </div>
-                  </Card>
-                );
-              })}
+                    </Card>
+                  );
+                })}
             </div>
           )}
         </div>
