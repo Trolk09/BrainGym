@@ -7,44 +7,60 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useEffect, useState } from "react";
 
 interface LeaderboardEntry {
-  id: string;
   username: string;
-  totalPoints: number;
-  exercisesCompleted: number;
+  points: number;
 }
 
 export default function Leaderboard() {
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[] | null>(null);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const currentUsername = localStorage.getItem("brainGymUsername") || "";
 
-  // Load leaderboard from localStorage
-  useEffect(() => {
+  // 🧠 Load leaderboard from localStorage
+  const loadLeaderboard = () => {
     const stored = localStorage.getItem("leaderboard");
     if (stored) {
-      setLeaderboard(JSON.parse(stored));
+      try {
+        const parsed = JSON.parse(stored);
+        setLeaderboard(parsed);
+      } catch {
+        setLeaderboard([]);
+      }
     } else {
       setLeaderboard([]);
     }
     setLoading(false);
+  };
 
-    // Auto-update when localStorage changes
-    const listener = () => {
-      const updated = localStorage.getItem("leaderboard");
-      if (updated) setLeaderboard(JSON.parse(updated));
-    };
+  // 🔄 Auto-update when points change (triggered by Exercise)
+  useEffect(() => {
+    loadLeaderboard();
+
+    const listener = () => loadLeaderboard();
+
+    // React to `storage` events across tabs
     window.addEventListener("storage", listener);
-    return () => window.removeEventListener("storage", listener);
+
+    // React to in-tab updates
+    const interval = setInterval(() => {
+      const lastUpdate = localStorage.getItem("lastPointsUpdate");
+      if (lastUpdate) loadLeaderboard();
+    }, 2000);
+
+    return () => {
+      window.removeEventListener("storage", listener);
+      clearInterval(interval);
+    };
   }, []);
 
   const getRankIcon = (rank: number) => {
     switch (rank) {
       case 1:
-        return <Trophy className="h-6 w-6 text-chart-3" />;
+        return <Trophy className="h-6 w-6 text-yellow-500" />;
       case 2:
-        return <Medal className="h-6 w-6 text-muted-foreground" />;
+        return <Medal className="h-6 w-6 text-gray-400" />;
       case 3:
-        return <Award className="h-6 w-6 text-chart-4" />;
+        return <Award className="h-6 w-6 text-amber-700" />;
       default:
         return null;
     }
@@ -65,6 +81,7 @@ export default function Leaderboard() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* HEADER */}
       <header className="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -78,6 +95,7 @@ export default function Leaderboard() {
         </div>
       </header>
 
+      {/* MAIN */}
       <main className="container mx-auto px-6 py-12">
         <div className="max-w-3xl mx-auto">
           <div className="mb-12 text-center space-y-4">
@@ -94,6 +112,7 @@ export default function Leaderboard() {
             </p>
           </div>
 
+          {/* LOADING */}
           {loading ? (
             <div className="space-y-4">
               {[1, 2, 3, 4, 5].map((i) => (
@@ -109,7 +128,7 @@ export default function Leaderboard() {
                 </Card>
               ))}
             </div>
-          ) : !leaderboard || leaderboard.length === 0 ? (
+          ) : leaderboard.length === 0 ? (
             <Card className="p-12 text-center">
               <Trophy className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
               <h3 className="text-2xl font-bold text-foreground mb-2">
@@ -125,7 +144,7 @@ export default function Leaderboard() {
           ) : (
             <div className="space-y-4">
               {leaderboard
-                .sort((a, b) => b.totalPoints - a.totalPoints)
+                .sort((a, b) => b.points - a.points)
                 .map((entry, index) => {
                   const rank = index + 1;
                   const isCurrentUser = entry.username === currentUsername;
@@ -133,7 +152,7 @@ export default function Leaderboard() {
 
                   return (
                     <Card
-                      key={entry.id}
+                      key={`${entry.username}-${rank}`}
                       className={`p-6 transition-all ${
                         isCurrentUser ? "ring-2 ring-primary bg-primary/5" : ""
                       } ${isTopThree ? "shadow-lg" : ""}`}
@@ -158,10 +177,6 @@ export default function Leaderboard() {
                               </Badge>
                             )}
                           </div>
-                          <p className="text-sm text-muted-foreground">
-                            {entry.exercisesCompleted} exercise
-                            {entry.exercisesCompleted !== 1 ? "s" : ""} completed
-                          </p>
                         </div>
 
                         <div className="flex flex-col items-end gap-2">
@@ -169,7 +184,7 @@ export default function Leaderboard() {
                             variant={getRankBadgeVariant(rank)}
                             className="text-lg px-4 py-1.5 font-bold"
                           >
-                            {entry.totalPoints} pts
+                            {entry.points} pts
                           </Badge>
                         </div>
                       </div>
