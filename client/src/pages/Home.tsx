@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
-import { EXERCISES, type ExerciseType } from "@shared/schema";
+import { EXERCISES } from "@shared/schema";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,37 +15,53 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getExerciseIcon } from "@/lib/icons";
-import { useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
-import { useUserPoints } from "@/hooks/use-user-points";
 
 export default function Home() {
-  const [username, setUsername] = useState(
-    localStorage.getItem("brainGymUsername") || ""
-  );
+  const [username, setUsername] = useState(localStorage.getItem("brainGymUsername") || "");
   const [showUsernameDialog, setShowUsernameDialog] = useState(!username);
   const [tempUsername, setTempUsername] = useState("");
+  const [totalPoints, setTotalPoints] = useState<number>(0);
+  const [loadingPoints, setLoadingPoints] = useState(true);
 
-  const { data: totalPoints, isLoading: isLoadingPoints } = useUserPoints(username);
+  // Load user points from localStorage
+  useEffect(() => {
+    if (!username) return;
+    setLoadingPoints(true);
 
-  const initializeUserMutation = useMutation({
-    mutationFn: async (username: string) => {
-      return apiRequest("POST", "/api/leaderboard", { username, pointsToAdd: 1 });
-    },
-  });
+    const leaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]");
+    const user = leaderboard.find((u: any) => u.username === username);
+    setTotalPoints(user ? user.totalPoints : 0);
+    setLoadingPoints(false);
 
-  const handleSetUsername = async () => {
+    // Watch for localStorage changes from other tabs or components
+    const handleStorageChange = () => {
+      const updated = JSON.parse(localStorage.getItem("leaderboard") || "[]");
+      const current = updated.find((u: any) => u.username === username);
+      setTotalPoints(current ? current.totalPoints : 0);
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, [username]);
+
+  const handleSetUsername = () => {
     if (tempUsername.trim()) {
-      localStorage.setItem("brainGymUsername", tempUsername.trim());
-      setUsername(tempUsername.trim());
+      const trimmed = tempUsername.trim();
+      localStorage.setItem("brainGymUsername", trimmed);
+      setUsername(trimmed);
       setShowUsernameDialog(false);
 
-      // Initialize user on leaderboard to enable auto-rewards
-      try {
-        await initializeUserMutation.mutateAsync(tempUsername.trim());
-      } catch (error) {
-        console.log("User initialization:", error);
+      // Initialize user in leaderboard if not present
+      const leaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]");
+      if (!leaderboard.some((u: any) => u.username === trimmed)) {
+        leaderboard.push({
+          id: crypto.randomUUID(),
+          username: trimmed,
+          totalPoints: 0,
+          exercisesCompleted: 0,
+        });
+        localStorage.setItem("leaderboard", JSON.stringify(leaderboard));
       }
+      window.dispatchEvent(new Event("storage")); // trigger UI updates
     }
   };
 
@@ -75,7 +91,7 @@ export default function Home() {
                   className="text-lg px-4 py-2"
                   data-testid="badge-total-points"
                 >
-                  {isLoadingPoints ? (
+                  {loadingPoints ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <>
@@ -84,7 +100,7 @@ export default function Home() {
                         className="ml-2 font-bold text-foreground"
                         data-testid="text-total-points"
                       >
-                        {totalPoints || 0}
+                        {totalPoints}
                       </span>
                     </>
                   )}
@@ -113,7 +129,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Main */}
       <main className="container mx-auto px-6 py-12 flex-grow">
         <div className="mb-12 text-center">
           <h2 className="mb-4 text-5xl font-bold text-foreground">
@@ -159,7 +175,7 @@ export default function Home() {
         </div>
       </main>
 
-      {/* Credits Footer */}
+      {/* Footer */}
       <footer className="border-t py-4 bg-card/70 backdrop-blur-sm text-center text-sm text-muted-foreground">
         <p>
           © {new Date().getFullYear()} Brain Gym · Built with ❤️ by{" "}
@@ -189,9 +205,7 @@ export default function Home() {
                 value={tempUsername}
                 onChange={(e) => setTempUsername(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleSetUsername();
-                  }
+                  if (e.key === "Enter") handleSetUsername();
                 }}
                 className="text-lg"
                 data-testid="input-username"
