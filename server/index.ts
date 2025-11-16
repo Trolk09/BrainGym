@@ -1,9 +1,9 @@
-// server/index.ts — full stable version
+// server/index.ts — FULL FIXED VERSION
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { stopAllAutoPointAwards } from "./auto-points";
-import { storage } from "./storage"; // ✅ needed for admin DB actions
+import { storage } from "./storage";
 
 const app = express();
 
@@ -13,7 +13,7 @@ declare module "http" {
   }
 }
 
-// ✅ Body parsing
+// ===== Body Parsing =====
 app.use(
   express.json({
     verify: (req, _res, buf) => {
@@ -23,7 +23,7 @@ app.use(
 );
 app.use(express.urlencoded({ extended: false }));
 
-// ✅ Logging middleware
+// ===== Logging =====
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -42,11 +42,9 @@ app.use((req, res, next) => {
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
-
       if (logLine.length > 80) {
         logLine = logLine.slice(0, 79) + "…";
       }
-
       log(logLine);
     }
   });
@@ -55,14 +53,62 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // ✅ Register normal API routes
+  // Register normal routes
   const server = await registerRoutes(app);
 
   // ============================================================
-  // 🛠️ ADMIN ROUTES
+  // 🛠️ ADMIN ROUTES (For Admin.tsx)
   // ============================================================
 
-  // View all users
+  // 1. Load leaderboard
+  app.get("/admin/leaderboard", async (req, res) => {
+    try {
+      const rows = await storage.db.all(
+        "SELECT username, points FROM users ORDER BY points DESC"
+      );
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 2. Reset leaderboard
+  app.post("/admin/reset-leaderboard", async (req, res) => {
+    try {
+      await storage.db.run("UPDATE users SET points = 0");
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 3. Update points
+  app.post("/admin/update-points", async (req, res) => {
+    try {
+      const { username, newPoints } = req.body;
+
+      if (!username || newPoints === undefined) {
+        return res.status(400).json({
+          error: "username and newPoints required",
+        });
+      }
+
+      await storage.db.run(
+        "UPDATE users SET points = ? WHERE username = ?",
+        newPoints,
+        username
+      );
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // (Optional) Legacy admin routes you had before
+  // ============================================================
+
   app.get("/admin/users", async (req, res) => {
     try {
       const users = await storage.db.all(
@@ -74,7 +120,6 @@ app.use((req, res, next) => {
     }
   });
 
-  // Delete a user
   app.get("/admin/delete/:username", async (req, res) => {
     try {
       const { username } = req.params;
@@ -85,7 +130,6 @@ app.use((req, res, next) => {
     }
   });
 
-  // Edit user points
   app.get("/admin/setpoints/:username/:points", async (req, res) => {
     try {
       const { username, points } = req.params;
@@ -109,16 +153,15 @@ app.use((req, res, next) => {
 
   // ============================================================
 
-  // ✅ Global error handler
+  // Global error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
-
     res.status(status).json({ message });
     throw err;
   });
 
-  // Vite setup
+  // Vite dev / prod handling
   if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
@@ -133,9 +176,7 @@ app.use((req, res, next) => {
       host: "0.0.0.0",
       reusePort: true,
     },
-    () => {
-      log(`✅ Serving on port ${port}`);
-    }
+    () => log(`✅ Serving on port ${port}`)
   );
 
   // Cleanup
