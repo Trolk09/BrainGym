@@ -5,6 +5,13 @@ import { setupVite, serveStatic, log } from "./vite";
 import { stopAllAutoPointAwards } from "./auto-points";
 import { storage } from "./storage";
 
+import path from "path";
+import { fileURLToPath } from "url";
+
+// Fix __dirname for ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 
 declare module "http" {
@@ -53,14 +60,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Register normal routes
+  // Register API routes
   const server = await registerRoutes(app);
 
   // ============================================================
-  // 🛠️ ADMIN ROUTES (For Admin.tsx)
+  // 🛠️ ADMIN ROUTES (JSON API for Admin.tsx)
   // ============================================================
 
-  // 1. Load leaderboard
+  // Load leaderboard
   app.get("/admin/leaderboard", async (req, res) => {
     try {
       const rows = await storage.db.all(
@@ -72,7 +79,7 @@ app.use((req, res, next) => {
     }
   });
 
-  // 2. Reset leaderboard
+  // Reset leaderboard
   app.post("/admin/reset-leaderboard", async (req, res) => {
     try {
       await storage.db.run("UPDATE users SET points = 0");
@@ -82,15 +89,15 @@ app.use((req, res, next) => {
     }
   });
 
-  // 3. Update points
+  // Update user points
   app.post("/admin/update-points", async (req, res) => {
     try {
       const { username, newPoints } = req.body;
 
       if (!username || newPoints === undefined) {
-        return res.status(400).json({
-          error: "username and newPoints required",
-        });
+        return res
+          .status(400)
+          .json({ error: "username and newPoints required" });
       }
 
       await storage.db.run(
@@ -106,9 +113,8 @@ app.use((req, res, next) => {
   });
 
   // ============================================================
-  // (Optional) Legacy admin routes you had before
+  // Legacy Admin JSON routes
   // ============================================================
-
   app.get("/admin/users", async (req, res) => {
     try {
       const users = await storage.db.all(
@@ -152,8 +158,28 @@ app.use((req, res, next) => {
   });
 
   // ============================================================
+  // 🔥 Vite (dev) & static files (prod)
+  // ============================================================
+  if (app.get("env") === "development") {
+    await setupVite(app, server);
+  } else {
+    serveStatic(app);
+  }
 
-  // Global error handler
+  // ============================================================
+  // ⭐ SPA FALLBACK ROUTE — FIXES WHITE SCREEN FOR /admin
+  // ============================================================
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api") || req.path.startsWith("/admin/")) {
+      return next();
+    }
+
+    res.sendFile(path.join(__dirname, "..", "client", "index.html"));
+  });
+
+  // ============================================================
+  // Error handler
+  // ============================================================
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -161,14 +187,9 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // Vite dev / prod handling
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
-
+  // ============================================================
   // Start server
+  // ============================================================
   const port = parseInt(process.env.PORT || "5000", 10);
   server.listen(
     {
