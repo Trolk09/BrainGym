@@ -8,6 +8,7 @@ import Exercise from "@/pages/Exercise";
 import Leaderboard from "@/pages/Leaderboard";
 import Results from "@/pages/Results";
 import NotFound from "@/pages/not-found";
+import Admin from "@/pages/Admin"; // ✅ ADD THIS
 
 function Router() {
   return (
@@ -16,6 +17,10 @@ function Router() {
       <Route path="/exercise/:exerciseId" component={Exercise} />
       <Route path="/results/:exerciseId/:points" component={Results} />
       <Route path="/leaderboard" component={Leaderboard} />
+
+      {/* ✅ ADMIN PAGE ROUTE */}
+      <Route path="/admin" component={Admin} />
+
       <Route component={NotFound} />
     </Switch>
   );
