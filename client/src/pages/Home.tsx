@@ -20,17 +20,18 @@ type LeaderboardEntry = {
   id: string;
   username: string;
   points: number;
+  ip?: string;
   exercisesCompleted?: number;
 };
 
-function safeParse<T = any>(raw: string | null, fallback: T): T {
+const safeParse = <T,>(raw: string | null, fallback: T): T => {
   if (!raw) return fallback;
   try {
     return JSON.parse(raw) as T;
   } catch {
     return fallback;
   }
-}
+};
 
 export default function Home() {
   const [username, setUsername] = useState<string>(
@@ -43,110 +44,100 @@ export default function Home() {
   );
   const [loadingPoints, setLoadingPoints] = useState<boolean>(true);
 
-  // Utility: load leaderboard from localStorage and update totalPoints for current user
-  const loadPointsForUser = (user?: string) => {
-    const uname = user ?? username;
-    if (!uname) {
+  // load user's points from leaderboard
+  const loadPointsForUser = (uname?: string) => {
+    const user = (uname ?? username);
+    if (!user) {
       setTotalPoints(0);
       setLoadingPoints(false);
       return;
     }
-
-    const raw = localStorage.getItem("leaderboard");
-    const leaderboard = safeParse<LeaderboardEntry[]>(raw, []);
-    // normalize entries (ensure points number)
-    for (const e of leaderboard) {
-      if (typeof e.points !== "number") e.points = Number((e as any).points) || 0;
-    }
-    const entry = leaderboard.find((e) => e.username === uname);
+    const board = safeParse<LeaderboardEntry[]>(localStorage.getItem("leaderboard"), []);
+    const entry = board.find((e) => e.username === user);
     setTotalPoints(entry ? entry.points : 0);
     setLoadingPoints(false);
   };
 
-  // On mount / username changes: load points and set up listeners
+  // fetch public IP once and store (non-blocking)
+  useEffect(() => {
+    if (!localStorage.getItem("userIp")) {
+      // use ipify (small, public); if blocked, we ignore
+      fetch("https://api.ipify.org?format=json")
+        .then((r) => r.json())
+        .then((d) => {
+          if (d?.ip) localStorage.setItem("userIp", d.ip);
+        })
+        .catch(() => {});
+    }
+  }, []);
+
   useEffect(() => {
     if (!username) {
       setLoadingPoints(false);
       return;
     }
-
     setLoadingPoints(true);
-    loadPointsForUser(username);
+    loadPointsForUser();
 
-    // storage event for cross-tab updates
+    // storage listener (cross-tab)
     const onStorage = (e: StorageEvent) => {
       if (e.key === "leaderboard" || e.key === "lastPointsUpdate" || e.key === "totalPoints") {
-        loadPointsForUser(username);
+        loadPointsForUser();
       }
     };
     window.addEventListener("storage", onStorage);
 
-    // In-tab fallback: poll for lastPointsUpdate to detect Exercise writes
-    let pollInterval: number | undefined;
-    const lastKey = localStorage.getItem("lastPointsUpdate");
-    pollInterval = window.setInterval(() => {
-      const last = localStorage.getItem("lastPointsUpdate");
-      if (last !== lastKey) {
-        // reload if timestamp changed
-        loadPointsForUser(username);
+    // in-tab poll fallback for fast reactiveness (sync with Exercise/admin)
+    const interval = window.setInterval(() => {
+      const board = safeParse<LeaderboardEntry[]>(localStorage.getItem("leaderboard"), []);
+      const entry = board.find((e) => e.username === username);
+      const points = entry ? entry.points : 0;
+      const saved = Number(localStorage.getItem("totalPoints")) || 0;
+      if (points !== totalPoints || saved !== totalPoints) {
+        setTotalPoints(points);
+        localStorage.setItem("totalPoints", String(points));
       }
-    }, 1500);
+    }, 3000);
 
     return () => {
       window.removeEventListener("storage", onStorage);
-      if (pollInterval) clearInterval(pollInterval);
+      clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username]);
 
-  // Helper: persist leaderboard (keeps array sorted descending)
-  const saveLeaderboard = (leaderboard: LeaderboardEntry[]) => {
-    leaderboard.sort((a, b) => b.points - a.points);
-    localStorage.setItem("leaderboard", JSON.stringify(leaderboard));
-  };
-
-  // Called when user fills the dialog and presses Let's Go!
   const handleSetUsername = () => {
-    if (!tempUsername.trim()) return;
     const trimmed = tempUsername.trim();
+    if (!trimmed) return;
 
-    // Persist username
+    // set username locally
     localStorage.setItem("brainGymUsername", trimmed);
     setUsername(trimmed);
     setShowUsernameDialog(false);
 
-    // Ensure leaderboard exists and user entry exists (give +1 point on entering name)
-    const raw = localStorage.getItem("leaderboard");
-    const leaderboard = safeParse<LeaderboardEntry[]>(raw, []);
-    let entry = leaderboard.find((e) => e.username === trimmed);
+    // ensure leaderboard has user; give +1 point on first add
+    const board = safeParse<LeaderboardEntry[]>(localStorage.getItem("leaderboard"), []);
+    let entry = board.find((e) => e.username === trimmed);
+    const userIp = localStorage.getItem("userIp") || "Unknown";
     if (!entry) {
       entry = {
         id: (crypto && (crypto as any).randomUUID ? (crypto as any).randomUUID() : `${Date.now()}-${Math.random()}`),
         username: trimmed,
-        points: 1, // +1 point on entering name
+        points: 1,
+        ip: userIp,
         exercisesCompleted: 0,
       };
-      leaderboard.push(entry);
-    } else {
-      // If exists, ensure at least +1 on first time? we'll give +1 only if their points are 0
-      if (!entry.points || entry.points <= 0) {
-        entry.points = (entry.points || 0) + 1;
-      } else {
-        // otherwise you can still give 1 if you want — currently only when new
-      }
+      board.push(entry);
     }
-
-    saveLeaderboard(leaderboard);
-
-    // Also keep a totalPoints key in sync (convenience)
-    const total = leaderboard.find((e) => e.username === trimmed)?.points ?? 0;
-    localStorage.setItem("totalPoints", String(total));
-    setTotalPoints(total);
-
-    // notify other pieces of app
+    // persist
+    board.sort((a, b) => b.points - a.points);
+    localStorage.setItem("leaderboard", JSON.stringify(board));
+    localStorage.setItem("totalPoints", String(entry.points));
     localStorage.setItem("lastPointsUpdate", Date.now().toString());
-    // trigger storage-like event in same tab
+    // notify in-tab
     window.dispatchEvent(new Event("storage"));
+    setTotalPoints(entry.points);
+    setTempUsername("");
   };
 
   const exercisesList = Object.values(EXERCISES);
@@ -170,40 +161,24 @@ export default function Home() {
             </div>
             <div className="flex items-center gap-4">
               {username && (
-                <Badge
-                  variant="secondary"
-                  className="text-lg px-4 py-2"
-                  data-testid="badge-total-points"
-                >
+                <Badge variant="secondary" className="text-lg px-4 py-2" data-testid="badge-total-points">
                   {loadingPoints ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <>
                       <span className="text-muted-foreground">Points:</span>
-                      <span
-                        className="ml-2 font-bold text-foreground"
-                        data-testid="text-total-points"
-                      >
+                      <span className="ml-2 font-bold text-foreground" data-testid="text-total-points">
                         {totalPoints}
                       </span>
                     </>
                   )}
                 </Badge>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowUsernameDialog(true)}
-                data-testid="button-change-username"
-              >
+              <Button variant="outline" size="sm" onClick={() => setShowUsernameDialog(true)} data-testid="button-change-username">
                 Change Name
               </Button>
               <Link href="/leaderboard">
-                <Button
-                  variant="default"
-                  className="gap-2"
-                  data-testid="button-leaderboard"
-                >
+                <Button variant="default" className="gap-2" data-testid="button-leaderboard">
                   <Trophy className="h-5 w-5" />
                   Leaderboard
                 </Button>
@@ -228,28 +203,18 @@ export default function Home() {
           {exercisesList.map((exercise) => {
             const IconComponent = getExerciseIcon(exercise.icon);
             return (
-              <Link
-                key={exercise.id}
-                href={`/exercise/${exercise.id}`}
-                data-testid={`link-exercise-${exercise.id}`}
-              >
+              <Link key={exercise.id} href={`/exercise/${exercise.id}`} data-testid={`link-exercise-${exercise.id}`}>
                 <Card className="group h-full p-6 transition-all hover-elevate active-elevate-2 cursor-pointer">
                   <div className="flex flex-col items-center text-center space-y-4">
                     <div className="flex h-24 w-24 items-center justify-center rounded-full bg-primary/10 group-hover:scale-110 transition-transform">
                       <IconComponent className="h-12 w-12 text-primary" />
                     </div>
                     <div className="space-y-2">
-                      <h3 className="text-2xl font-bold text-foreground">
-                        {exercise.name}
-                      </h3>
-                      <p className="text-base text-muted-foreground line-clamp-2">
-                        {exercise.description}
-                      </p>
+                      <h3 className="text-2xl font-bold text-foreground">{exercise.name}</h3>
+                      <p className="text-base text-muted-foreground line-clamp-2">{exercise.description}</p>
                     </div>
                     <div className="pt-2">
-                      <Button variant="outline" size="sm" className="pointer-events-none">
-                        Start Exercise
-                      </Button>
+                      <Button variant="outline" size="sm" className="pointer-events-none">Start Exercise</Button>
                     </div>
                   </div>
                 </Card>
@@ -261,12 +226,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t py-4 bg-card/70 backdrop-blur-sm text-center text-sm text-muted-foreground">
-        <p>
-          © {new Date().getFullYear()} Brain Gym · Built with ❤️ by{" "}
-          <span className="font-medium text-foreground">
-            Divyam(Team Leader), Prikshit, Rishabh
-          </span>
-        </p>
+        <p>© {new Date().getFullYear()} Brain Gym · Built with ❤️ by <span className="font-medium text-foreground">Divyam(Team Leader), Prikshit, Rishabh</span></p>
       </footer>
 
       {/* Username Dialog */}
@@ -274,34 +234,22 @@ export default function Home() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-2xl">What's your name?</DialogTitle>
-            <DialogDescription className="text-base">
-              Enter your name so we can track your awesome progress!
-            </DialogDescription>
+            <DialogDescription className="text-base">Enter your name so we can track your awesome progress!</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="username" className="text-base">
-                Your Name
-              </Label>
+              <Label htmlFor="username" className="text-base">Your Name</Label>
               <Input
                 id="username"
                 placeholder="Enter your name"
                 value={tempUsername}
                 onChange={(e) => setTempUsername(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSetUsername();
-                }}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSetUsername(); }}
                 className="text-lg"
                 data-testid="input-username"
               />
             </div>
-            <Button
-              onClick={handleSetUsername}
-              className="w-full text-lg"
-              size="lg"
-              disabled={!tempUsername.trim()}
-              data-testid="button-save-username"
-            >
+            <Button onClick={handleSetUsername} className="w-full text-lg" size="lg" disabled={!tempUsername.trim()} data-testid="button-save-username">
               Let's Go!
             </Button>
           </div>
