@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { EXERCISES, type ExerciseType } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Camera, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { ArrowLeft, Camera } from "lucide-react";
 import { getExerciseIcon } from "@/lib/icons";
 
 export default function Exercise() {
@@ -17,19 +17,20 @@ export default function Exercise() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [lastValidation, setLastValidation] = useState<any>(null);
   const [sessionPoints, setSessionPoints] = useState(0);
-  const [totalPoints, setTotalPoints] = useState<number>(() => Number(localStorage.getItem("totalPoints")) || 0);
+  const [totalPoints, setTotalPoints] = useState<number>(
+    () => Number(localStorage.getItem("totalPoints")) || 0
+  );
   const [timeLeft, setTimeLeft] = useState(60);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  const videoRef = useRef<HTMLVideoElement>(null);
   const username = localStorage.getItem("brainGymUsername") || "Guest";
 
-  // 🧠 Redirect to home if no username
+  // Redirect to home if no username
   useEffect(() => {
     if (!username) setLocation("/");
   }, [username, setLocation]);
 
-  // 🎥 Start camera
+  // Start camera
   useEffect(() => {
     if (!exercise) {
       setLocation("/");
@@ -56,38 +57,45 @@ export default function Exercise() {
     };
   }, [exercise, setLocation]);
 
-  // 🧩 Auto-award points every 15s
+  // Auto-award points every 15s
   useEffect(() => {
     if (!isCapturing) return;
 
     const interval = setInterval(() => {
       const randomPoints = Math.floor(Math.random() * (55 - 30 + 1)) + 30;
 
+      // Update session points
       setSessionPoints((prev) => prev + randomPoints);
+
+      // Update total points
       setTotalPoints((prev) => {
         const updated = prev + randomPoints;
         localStorage.setItem("totalPoints", updated.toString());
         return updated;
       });
 
-      // 🏆 Update leaderboard
+      // --- FIXED LEADERBOARD UPDATE ---
       const leaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]");
-      const existingUser = leaderboard.find((p: any) => p.name === username);
 
-      if (existingUser) existingUser.points += randomPoints;
-      else leaderboard.push({ name: username, points: randomPoints });
+      const existingUser = leaderboard.find((p: any) => p.username === username);
+
+      if (existingUser) {
+        existingUser.points += randomPoints;
+      } else {
+        leaderboard.push({ username, points: randomPoints });
+      }
 
       leaderboard.sort((a: any, b: any) => b.points - a.points);
       localStorage.setItem("leaderboard", JSON.stringify(leaderboard));
 
-      // 🔄 Trigger UI update across pages (by writing a timestamp)
+      // Trigger UI refresh for leaderboard
       localStorage.setItem("lastPointsUpdate", Date.now().toString());
     }, 15000);
 
     return () => clearInterval(interval);
   }, [isCapturing, username]);
 
-  // 🕒 Timer logic
+  // Timer logic
   useEffect(() => {
     if (!isCapturing || timeLeft <= 0) return;
 
@@ -104,20 +112,23 @@ export default function Exercise() {
     return () => clearInterval(timer);
   }, [isCapturing, timeLeft]);
 
+  // Start exercise
   const handleStartCapture = () => {
     setIsCapturing(true);
     setTimeLeft(60);
   };
 
+  // Stop exercise
   const handleStopCapture = () => {
     setIsCapturing(false);
     setLastValidation(null);
   };
 
+  // Finish button (resets session)
   const handleFinishExercise = () => {
     setIsCapturing(false);
     setLastValidation(null);
-    setSessionPoints(0); // ✅ Reset session points
+    setSessionPoints(0);
     setTimeLeft(60);
     setLocation("/");
   };
@@ -127,7 +138,7 @@ export default function Exercise() {
   return (
     <div className="min-h-screen bg-background">
       {/* HEADER */}
-      <header className="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+      <header className="sticky top-0 z-50 border-b bg-card/95 backdrop-blur">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <Button variant="ghost" onClick={() => setLocation("/")} className="gap-2">
@@ -137,7 +148,10 @@ export default function Exercise() {
 
             <div className="flex items-center gap-4">
               {isCapturing && (
-                <Badge variant={timeLeft <= 10 ? "destructive" : "default"} className="text-2xl px-6 py-3 font-bold">
+                <Badge
+                  variant={timeLeft <= 10 ? "destructive" : "default"}
+                  className="text-2xl px-6 py-3 font-bold"
+                >
                   ⏱️ {timeLeft}s
                 </Badge>
               )}
@@ -153,7 +167,7 @@ export default function Exercise() {
       {/* MAIN CONTENT */}
       <main className="container mx-auto px-6 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 max-w-7xl mx-auto">
-          {/* LEFT: VIDEO SECTION */}
+          {/* VIDEO SECTION */}
           <div className="lg:col-span-3 space-y-6">
             <div className="relative rounded-2xl overflow-hidden bg-muted aspect-video">
               <video
@@ -165,10 +179,8 @@ export default function Exercise() {
               />
               {!stream && (
                 <div className="absolute inset-0 flex items-center justify-center bg-muted">
-                  <div className="text-center space-y-4">
-                    <Camera className="h-16 w-16 mx-auto text-muted-foreground" />
-                    <p className="text-lg text-muted-foreground">Starting camera...</p>
-                  </div>
+                  <Camera className="h-16 w-16 mx-auto text-muted-foreground" />
+                  <p className="text-lg text-muted-foreground mt-4">Starting camera...</p>
                 </div>
               )}
             </div>
@@ -176,10 +188,16 @@ export default function Exercise() {
             <div className="flex justify-center gap-4">
               {!isCapturing ? (
                 <>
-                  <Button size="lg" onClick={handleStartCapture} disabled={!stream} className="text-lg px-8 gap-2">
+                  <Button
+                    size="lg"
+                    onClick={handleStartCapture}
+                    disabled={!stream}
+                    className="text-lg px-8 gap-2"
+                  >
                     <Camera className="h-5 w-5" />
                     Start Exercise
                   </Button>
+
                   {sessionPoints > 0 && (
                     <Button
                       size="lg"
@@ -206,13 +224,15 @@ export default function Exercise() {
             {sessionPoints > 0 && (
               <Card className="p-4 text-center bg-primary/10 border-primary/20">
                 <p className="text-lg font-semibold text-foreground">
-                  You’ve earned <span className="text-primary font-bold">{sessionPoints}</span> points this session!
+                  You’ve earned{" "}
+                  <span className="text-primary font-bold">{sessionPoints}</span> points
+                  this session!
                 </p>
               </Card>
             )}
           </div>
 
-          {/* RIGHT: INFO SECTION */}
+          {/* INFO SECTION */}
           <div className="lg:col-span-2 space-y-6">
             <Card className="p-6">
               <div className="flex items-center gap-3">
@@ -224,7 +244,9 @@ export default function Exercise() {
                 </div>
                 <h2 className="text-3xl font-bold">{exercise.name}</h2>
               </div>
-              <p className="text-base text-muted-foreground leading-relaxed mt-4">{exercise.benefits}</p>
+              <p className="text-base text-muted-foreground mt-4">
+                {exercise.benefits}
+              </p>
             </Card>
 
             <Card className="p-6">
@@ -244,7 +266,7 @@ export default function Exercise() {
             <Card className="p-6 bg-accent/10 border-accent/20">
               <h3 className="text-lg font-bold mb-3">💡 Tip</h3>
               <p className="text-base text-muted-foreground">
-                Make sure you're in a well-lit area and the camera can see your whole body.
+                Make sure you're in a well-lit area and visible to the camera.
               </p>
             </Card>
           </div>
