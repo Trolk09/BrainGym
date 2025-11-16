@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 interface LeaderboardEntry {
   username: string;
   points: number;
+  ip?: string;
 }
 
 export default function Leaderboard() {
@@ -16,41 +17,28 @@ export default function Leaderboard() {
   const [loading, setLoading] = useState(true);
   const currentUsername = localStorage.getItem("brainGymUsername") || "";
 
-  // 🧠 Load leaderboard from localStorage
-  const loadLeaderboard = () => {
-    const stored = localStorage.getItem("leaderboard");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        setLeaderboard(parsed);
-      } catch {
-        setLeaderboard([]);
-      }
-    } else {
+  // 🧠 Load leaderboard from BACKEND
+  const loadLeaderboard = async () => {
+    try {
+      const res = await fetch("/api/users");
+      const data = await res.json();
+      setLeaderboard(data);
+    } catch (err) {
+      console.error("Leaderboard load error:", err);
       setLeaderboard([]);
     }
     setLoading(false);
   };
 
-  // 🔄 Auto-update when points change (triggered by Exercise)
+  // Load leaderboard on mount + auto refresh
   useEffect(() => {
     loadLeaderboard();
 
-    const listener = () => loadLeaderboard();
-
-    // React to `storage` events across tabs
-    window.addEventListener("storage", listener);
-
-    // React to in-tab updates
     const interval = setInterval(() => {
-      const lastUpdate = localStorage.getItem("lastPointsUpdate");
-      if (lastUpdate) loadLeaderboard();
-    }, 2000);
+      loadLeaderboard();
+    }, 4000);
 
-    return () => {
-      window.removeEventListener("storage", listener);
-      clearInterval(interval);
-    };
+    return () => clearInterval(interval);
   }, []);
 
   const getRankIcon = (rank: number) => {
@@ -84,32 +72,27 @@ export default function Leaderboard() {
       {/* HEADER */}
       <header className="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
         <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <Button variant="ghost" asChild className="gap-2">
-              <Link href="/">
-                <ArrowLeft className="h-5 w-5" />
-                Back to Exercises
-              </Link>
-            </Button>
-          </div>
+          <Button variant="ghost" asChild className="gap-2">
+            <Link href="/">
+              <ArrowLeft className="h-5 w-5" />
+              Back to Exercises
+            </Link>
+          </Button>
         </div>
       </header>
 
       {/* MAIN */}
       <main className="container mx-auto px-6 py-12">
         <div className="max-w-3xl mx-auto">
+
           <div className="mb-12 text-center space-y-4">
             <div className="flex justify-center">
               <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10">
                 <Trophy className="h-12 w-12 text-primary" />
               </div>
             </div>
-            <h1 className="text-5xl font-bold text-foreground">
-              Top Brain Champions!
-            </h1>
-            <p className="text-xl text-muted-foreground leading-relaxed">
-              See who’s earning the most points doing brain exercises
-            </p>
+            <h1 className="text-5xl font-bold text-foreground">Top Brain Champions!</h1>
+            <p className="text-xl text-muted-foreground">Global leaderboard (live)</p>
           </div>
 
           {/* LOADING */}
@@ -131,12 +114,7 @@ export default function Leaderboard() {
           ) : leaderboard.length === 0 ? (
             <Card className="p-12 text-center">
               <Trophy className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-2xl font-bold text-foreground mb-2">
-                No one on the leaderboard yet!
-              </h3>
-              <p className="text-lg text-muted-foreground mb-6">
-                Be the first to complete an exercise and earn points!
-              </p>
+              <h3 className="text-2xl font-bold">Leaderboard is empty</h3>
               <Button asChild size="lg">
                 <Link href="/">Start an Exercise</Link>
               </Button>
@@ -148,17 +126,18 @@ export default function Leaderboard() {
                 .map((entry, index) => {
                   const rank = index + 1;
                   const isCurrentUser = entry.username === currentUsername;
-                  const isTopThree = rank <= 3;
 
                   return (
                     <Card
-                      key={`${entry.username}-${rank}`}
+                      key={entry.username}
                       className={`p-6 transition-all ${
                         isCurrentUser ? "ring-2 ring-primary bg-primary/5" : ""
-                      } ${isTopThree ? "shadow-lg" : ""}`}
+                      } ${rank <= 3 ? "shadow-lg" : ""}`}
                     >
                       <div className="flex items-center gap-4">
-                        <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-muted">
+
+                        {/* Rank Icon */}
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
                           {getRankIcon(rank) || (
                             <span className="text-lg font-bold text-foreground">
                               #{rank}
@@ -166,9 +145,10 @@ export default function Leaderboard() {
                           )}
                         </div>
 
+                        {/* Username */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <h3 className="text-xl font-bold text-foreground truncate">
+                            <h3 className="text-xl font-bold truncate">
                               {entry.username}
                             </h3>
                             {isCurrentUser && (
@@ -177,16 +157,22 @@ export default function Leaderboard() {
                               </Badge>
                             )}
                           </div>
+
+                          {/* IP address (optional) */}
+                          {entry.ip && (
+                            <p className="text-sm text-muted-foreground">
+                              IP: {entry.ip}
+                            </p>
+                          )}
                         </div>
 
-                        <div className="flex flex-col items-end gap-2">
-                          <Badge
-                            variant={getRankBadgeVariant(rank)}
-                            className="text-lg px-4 py-1.5 font-bold"
-                          >
-                            {entry.points} pts
-                          </Badge>
-                        </div>
+                        {/* Points */}
+                        <Badge
+                          variant={getRankBadgeVariant(rank)}
+                          className="text-lg px-4 py-1.5 font-bold"
+                        >
+                          {entry.points} pts
+                        </Badge>
                       </div>
                     </Card>
                   );
