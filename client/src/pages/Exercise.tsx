@@ -22,10 +22,11 @@ export default function Exercise() {
   );
   const [timeLeft, setTimeLeft] = useState(60);
 
+  const pointsIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const username = localStorage.getItem("brainGymUsername") || "Guest";
 
-  // Redirect to home if no username
+  // Redirect if no username
   useEffect(() => {
     if (!username) setLocation("/");
   }, [username, setLocation]);
@@ -46,7 +47,7 @@ export default function Exercise() {
         setStream(mediaStream);
         if (videoRef.current) videoRef.current.srcObject = mediaStream;
       } catch (error) {
-        console.error("Camera access error:", error);
+        console.error("Camera error:", error);
       }
     };
 
@@ -57,42 +58,47 @@ export default function Exercise() {
     };
   }, [exercise, setLocation]);
 
-  // Auto-award points every 15s
+  // FIXED AUTO-POINT SYSTEM
   useEffect(() => {
-    if (!isCapturing) return;
+    if (!isCapturing) {
+      if (pointsIntervalRef.current) {
+        clearInterval(pointsIntervalRef.current);
+        pointsIntervalRef.current = null;
+      }
+      return;
+    }
 
-    const interval = setInterval(() => {
+    if (pointsIntervalRef.current) return;
+
+    pointsIntervalRef.current = setInterval(() => {
       const randomPoints = Math.floor(Math.random() * (55 - 30 + 1)) + 30;
 
-      // Update session points
       setSessionPoints((prev) => prev + randomPoints);
 
-      // Update total points
       setTotalPoints((prev) => {
         const updated = prev + randomPoints;
         localStorage.setItem("totalPoints", updated.toString());
         return updated;
       });
 
-      // --- FIXED LEADERBOARD UPDATE ---
       const leaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]");
+      const existing = leaderboard.find((p: any) => p.username === username);
 
-      const existingUser = leaderboard.find((p: any) => p.username === username);
-
-      if (existingUser) {
-        existingUser.points += randomPoints;
-      } else {
-        leaderboard.push({ username, points: randomPoints });
-      }
+      if (existing) existing.points += randomPoints;
+      else leaderboard.push({ username, points: randomPoints });
 
       leaderboard.sort((a: any, b: any) => b.points - a.points);
       localStorage.setItem("leaderboard", JSON.stringify(leaderboard));
 
-      // Trigger UI refresh for leaderboard
       localStorage.setItem("lastPointsUpdate", Date.now().toString());
     }, 15000);
 
-    return () => clearInterval(interval);
+    return () => {
+      if (pointsIntervalRef.current) {
+        clearInterval(pointsIntervalRef.current);
+        pointsIntervalRef.current = null;
+      }
+    };
   }, [isCapturing, username]);
 
   // Timer logic
@@ -112,26 +118,43 @@ export default function Exercise() {
     return () => clearInterval(timer);
   }, [isCapturing, timeLeft]);
 
-  // Start exercise
   const handleStartCapture = () => {
     setIsCapturing(true);
     setTimeLeft(60);
   };
 
-  // Stop exercise
   const handleStopCapture = () => {
     setIsCapturing(false);
     setLastValidation(null);
+
+    if (pointsIntervalRef.current) {
+      clearInterval(pointsIntervalRef.current);
+      pointsIntervalRef.current = null;
+    }
   };
 
-  // Finish button (resets session)
   const handleFinishExercise = () => {
     setIsCapturing(false);
     setLastValidation(null);
     setSessionPoints(0);
     setTimeLeft(60);
+
+    if (pointsIntervalRef.current) {
+      clearInterval(pointsIntervalRef.current);
+      pointsIntervalRef.current = null;
+    }
+
     setLocation("/");
   };
+
+  useEffect(() => {
+    return () => {
+      if (pointsIntervalRef.current) {
+        clearInterval(pointsIntervalRef.current);
+        pointsIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   if (!exercise) return null;
 
