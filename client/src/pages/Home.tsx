@@ -16,53 +16,137 @@ import {
 } from "@/components/ui/dialog";
 import { getExerciseIcon } from "@/lib/icons";
 
+type LeaderboardEntry = {
+  id: string;
+  username: string;
+  points: number;
+  exercisesCompleted?: number;
+};
+
+function safeParse<T = any>(raw: string | null, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 export default function Home() {
-  const [username, setUsername] = useState(localStorage.getItem("brainGymUsername") || "");
-  const [showUsernameDialog, setShowUsernameDialog] = useState(!username);
-  const [tempUsername, setTempUsername] = useState("");
-  const [totalPoints, setTotalPoints] = useState<number>(0);
-  const [loadingPoints, setLoadingPoints] = useState(true);
+  const [username, setUsername] = useState<string>(
+    localStorage.getItem("brainGymUsername") || ""
+  );
+  const [showUsernameDialog, setShowUsernameDialog] = useState<boolean>(!username);
+  const [tempUsername, setTempUsername] = useState<string>("");
+  const [totalPoints, setTotalPoints] = useState<number>(() =>
+    Number(localStorage.getItem("totalPoints")) || 0
+  );
+  const [loadingPoints, setLoadingPoints] = useState<boolean>(true);
 
-  // Load user points from localStorage
-  useEffect(() => {
-    if (!username) return;
-    setLoadingPoints(true);
+  // Utility: load leaderboard from localStorage and update totalPoints for current user
+  const loadPointsForUser = (user?: string) => {
+    const uname = user ?? username;
+    if (!uname) {
+      setTotalPoints(0);
+      setLoadingPoints(false);
+      return;
+    }
 
-    const leaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]");
-    const user = leaderboard.find((u: any) => u.username === username);
-    setTotalPoints(user ? user.totalPoints : 0);
+    const raw = localStorage.getItem("leaderboard");
+    const leaderboard = safeParse<LeaderboardEntry[]>(raw, []);
+    // normalize entries (ensure points number)
+    for (const e of leaderboard) {
+      if (typeof e.points !== "number") e.points = Number((e as any).points) || 0;
+    }
+    const entry = leaderboard.find((e) => e.username === uname);
+    setTotalPoints(entry ? entry.points : 0);
     setLoadingPoints(false);
+  };
 
-    // Watch for localStorage changes from other tabs or components
-    const handleStorageChange = () => {
-      const updated = JSON.parse(localStorage.getItem("leaderboard") || "[]");
-      const current = updated.find((u: any) => u.username === username);
-      setTotalPoints(current ? current.totalPoints : 0);
+  // On mount / username changes: load points and set up listeners
+  useEffect(() => {
+    if (!username) {
+      setLoadingPoints(false);
+      return;
+    }
+
+    setLoadingPoints(true);
+    loadPointsForUser(username);
+
+    // storage event for cross-tab updates
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "leaderboard" || e.key === "lastPointsUpdate" || e.key === "totalPoints") {
+        loadPointsForUser(username);
+      }
     };
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
+    window.addEventListener("storage", onStorage);
+
+    // In-tab fallback: poll for lastPointsUpdate to detect Exercise writes
+    let pollInterval: number | undefined;
+    const lastKey = localStorage.getItem("lastPointsUpdate");
+    pollInterval = window.setInterval(() => {
+      const last = localStorage.getItem("lastPointsUpdate");
+      if (last !== lastKey) {
+        // reload if timestamp changed
+        loadPointsForUser(username);
+      }
+    }, 1500);
+
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      if (pollInterval) clearInterval(pollInterval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username]);
 
-  const handleSetUsername = () => {
-    if (tempUsername.trim()) {
-      const trimmed = tempUsername.trim();
-      localStorage.setItem("brainGymUsername", trimmed);
-      setUsername(trimmed);
-      setShowUsernameDialog(false);
+  // Helper: persist leaderboard (keeps array sorted descending)
+  const saveLeaderboard = (leaderboard: LeaderboardEntry[]) => {
+    leaderboard.sort((a, b) => b.points - a.points);
+    localStorage.setItem("leaderboard", JSON.stringify(leaderboard));
+  };
 
-      // Initialize user in leaderboard if not present
-      const leaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]");
-      if (!leaderboard.some((u: any) => u.username === trimmed)) {
-        leaderboard.push({
-          id: crypto.randomUUID(),
-          username: trimmed,
-          totalPoints: 0,
-          exercisesCompleted: 0,
-        });
-        localStorage.setItem("leaderboard", JSON.stringify(leaderboard));
+  // Called when user fills the dialog and presses Let's Go!
+  const handleSetUsername = () => {
+    if (!tempUsername.trim()) return;
+    const trimmed = tempUsername.trim();
+
+    // Persist username
+    localStorage.setItem("brainGymUsername", trimmed);
+    setUsername(trimmed);
+    setShowUsernameDialog(false);
+
+    // Ensure leaderboard exists and user entry exists (give +1 point on entering name)
+    const raw = localStorage.getItem("leaderboard");
+    const leaderboard = safeParse<LeaderboardEntry[]>(raw, []);
+    let entry = leaderboard.find((e) => e.username === trimmed);
+    if (!entry) {
+      entry = {
+        id: (crypto && (crypto as any).randomUUID ? (crypto as any).randomUUID() : `${Date.now()}-${Math.random()}`),
+        username: trimmed,
+        points: 1, // +1 point on entering name
+        exercisesCompleted: 0,
+      };
+      leaderboard.push(entry);
+    } else {
+      // If exists, ensure at least +1 on first time? we'll give +1 only if their points are 0
+      if (!entry.points || entry.points <= 0) {
+        entry.points = (entry.points || 0) + 1;
+      } else {
+        // otherwise you can still give 1 if you want — currently only when new
       }
-      window.dispatchEvent(new Event("storage")); // trigger UI updates
     }
+
+    saveLeaderboard(leaderboard);
+
+    // Also keep a totalPoints key in sync (convenience)
+    const total = leaderboard.find((e) => e.username === trimmed)?.points ?? 0;
+    localStorage.setItem("totalPoints", String(total));
+    setTotalPoints(total);
+
+    // notify other pieces of app
+    localStorage.setItem("lastPointsUpdate", Date.now().toString());
+    // trigger storage-like event in same tab
+    window.dispatchEvent(new Event("storage"));
   };
 
   const exercisesList = Object.values(EXERCISES);
