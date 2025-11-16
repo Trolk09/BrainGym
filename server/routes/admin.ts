@@ -1,74 +1,43 @@
 import { Router } from "express";
 import { storage } from "../storage";
 
-export function registerAdminRoutes() {
-  const router = Router();
+export const adminRouter = Router();
 
-  // -----------------------------------------------------------
-  // GET all users
-  // -----------------------------------------------------------
-  router.get("/users", async (_req, res) => {
-    const leaderboard = await storage.getLeaderboard();
-    res.json({ users: leaderboard });
-  });
+// Get all leaderboard raw entries
+adminRouter.get("/users", (req, res) => {
+  const list = Array.from(storage.leaderboardEntries.values());
+  res.json(list);
+});
 
-  // -----------------------------------------------------------
-  // DELETE user by username
-  // -----------------------------------------------------------
-  router.delete("/delete/:username", async (req, res) => {
-    const { username } = req.params;
+// Delete by username (old method)
+adminRouter.delete("/delete-user/:username", (req, res) => {
+  const username = req.params.username;
 
-    const entry = await storage.getLeaderboardEntryByUsername(username);
-    if (!entry) return res.status(404).json({ error: "User not found" });
+  let deleted = false;
 
-    storage["leaderboardEntries"].delete(entry.id);
+  for (const [id, entry] of storage.leaderboardEntries.entries()) {
+    if (entry.username === username) {
+      storage.leaderboardEntries.delete(id);
+      deleted = true;
+    }
+  }
 
-    res.json({ message: `Deleted ${username}` });
-  });
+  if (!deleted) {
+    return res.status(404).json({ error: "User not found" });
+  }
 
-  // -----------------------------------------------------------
-  // SET user points (override)
-  // -----------------------------------------------------------
-  router.post("/setpoints/:username/:points", async (req, res) => {
-    const { username, points } = req.params;
-    const pts = Number(points);
+  res.json({ message: `Deleted user '${username}'` });
+});
 
-    if (Number.isNaN(pts) || pts < 0)
-      return res.status(400).json({ error: "Invalid points" });
+// ⭐ NEW: Delete by ID (fix ghost user)
+adminRouter.delete("/delete-id/:id", (req, res) => {
+  const id = req.params.id;
 
-    let entry = await storage.getLeaderboardEntryByUsername(username);
-    if (!entry) return res.status(404).json({ error: "User not found" });
+  if (!storage.leaderboardEntries.has(id)) {
+    return res.status(404).json({ error: "Leaderboard entry not found" });
+  }
 
-    // override points
-    entry.totalPoints = pts;
-    entry.updatedAt = new Date();
+  storage.leaderboardEntries.delete(id);
 
-    storage["leaderboardEntries"].set(entry.id, entry);
-
-    res.json({ message: `Set ${username} to ${pts} points`, entry });
-  });
-
-  // -----------------------------------------------------------
-  // ADD points to a user
-  // -----------------------------------------------------------
-  router.post("/addpoints/:username/:points", async (req, res) => {
-    const { username, points } = req.params;
-    const pts = Number(points);
-
-    if (Number.isNaN(pts) || pts <= 0)
-      return res.status(400).json({ error: "Invalid points" });
-
-    let entry = await storage.getLeaderboardEntryByUsername(username);
-    if (!entry)
-      return res.status(404).json({ error: "User not found" });
-
-    entry.totalPoints += pts;
-    entry.updatedAt = new Date();
-
-    storage["leaderboardEntries"].set(entry.id, entry);
-
-    res.json({ message: `Added ${pts} points to ${username}`, entry });
-  });
-
-  return router;
-}
+  res.json({ message: `Deleted entry with ID ${id}` });
+});
