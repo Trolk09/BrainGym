@@ -2,7 +2,8 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { stopAllAutoPointAwards } from "./auto-points"; // ✅ cleanup support
+import { stopAllAutoPointAwards } from "./auto-points";
+import { storage } from "./storage"; // ✅ needed for admin DB actions
 
 const app = express();
 
@@ -22,7 +23,7 @@ app.use(
 );
 app.use(express.urlencoded({ extended: false }));
 
-// ✅ Logging middleware for all /api routes
+// ✅ Logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -54,8 +55,59 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // ✅ Register all routes (including login/logout)
+  // ✅ Register normal API routes
   const server = await registerRoutes(app);
+
+  // ============================================================
+  // 🛠️ ADMIN ROUTES
+  // ============================================================
+
+  // View all users
+  app.get("/admin/users", async (req, res) => {
+    try {
+      const users = await storage.db.all(
+        "SELECT username, points FROM users ORDER BY points DESC"
+      );
+      res.json(users);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Delete a user
+  app.get("/admin/delete/:username", async (req, res) => {
+    try {
+      const { username } = req.params;
+      await storage.db.run("DELETE FROM users WHERE username = ?", username);
+      res.send(`🗑️ Deleted user: ${username}`);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Edit user points
+  app.get("/admin/setpoints/:username/:points", async (req, res) => {
+    try {
+      const { username, points } = req.params;
+      const numericPoints = parseInt(points, 10);
+
+      if (isNaN(numericPoints)) {
+        return res.status(400).send("❌ Points must be a number");
+      }
+
+      await storage.db.run(
+        "UPDATE users SET points = ? WHERE username = ?",
+        numericPoints,
+        username
+      );
+
+      res.send(`✅ ${username} now has ${numericPoints} points`);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
 
   // ✅ Global error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -66,14 +118,14 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // ✅ Setup Vite (only in development)
+  // Vite setup
   if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
     serveStatic(app);
   }
 
-  // ✅ Start server
+  // Start server
   const port = parseInt(process.env.PORT || "5000", 10);
   server.listen(
     {
@@ -83,11 +135,10 @@ app.use((req, res, next) => {
     },
     () => {
       log(`✅ Serving on port ${port}`);
-      // ❌ Removed startAutoPointAward() here — handled per-user in routes
     }
   );
 
-  // ✅ Cleanup auto-points on shutdown
+  // Cleanup
   process.on("SIGTERM", stopAllAutoPointAwards);
   process.on("SIGINT", stopAllAutoPointAwards);
 })();
