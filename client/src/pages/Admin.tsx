@@ -1,76 +1,98 @@
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 
-export default function AdminPage() {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [msg, setMsg] = useState("");
+export default function Admin() {
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [username, setUsername] = useState("");
+  const [points, setPoints] = useState<number | "">("");
 
-  const loadUsers = async () => {
-    setLoading(true);
-    const res = await fetch("/api/admin/users");
+  // Fetch leaderboard
+  async function loadLeaderboard() {
+    const res = await fetch("/admin/leaderboard");
     const data = await res.json();
-    setUsers(data.users || []);
-    setLoading(false);
-  };
+    setLeaderboard(data);
+  }
 
-  const updatePoints = async (id, newPoints) => {
-    const res = await fetch("/api/admin/edit-points", {
+  // Reset leaderboard
+  async function resetLeaderboard() {
+    await fetch("/admin/reset-leaderboard", { method: "POST" });
+    loadLeaderboard();
+  }
+
+  // Update points for user
+  async function updatePoints() {
+    if (!username || points === "") return;
+
+    await fetch("/admin/update-points", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, points: Number(newPoints) }),
+      body: JSON.stringify({
+        username,
+        newPoints: Number(points),
+      }),
     });
 
-    const data = await res.json();
-    setMsg(data.message);
-
-    loadUsers(); // refresh
-  };
+    setUsername("");
+    setPoints("");
+    loadLeaderboard();
+  }
 
   useEffect(() => {
-    loadUsers();
+    loadLeaderboard();
   }, []);
 
-  if (loading) return <p className="p-4">Loading...</p>;
-
   return (
-    <div className="p-6">
-      <h1 className="text-xl font-bold mb-4">Admin — Edit Points</h1>
+    <div className="p-6 max-w-3xl mx-auto">
+      <h1 className="text-3xl font-bold mb-4">Admin Panel</h1>
 
-      {msg && <p className="text-green-600 mb-4">{msg}</p>}
+      {/* Reset leaderboard */}
+      <div className="mb-6">
+        <Button onClick={resetLeaderboard} className="bg-red-600 text-white">
+          Reset Leaderboard
+        </Button>
+      </div>
+
+      {/* Edit user points */}
+      <div className="mb-8 bg-gray-100 p-4 rounded-xl shadow">
+        <h2 className="text-xl font-semibold mb-3">Edit User Points</h2>
+
+        <div className="flex gap-3 items-center">
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className="border px-3 py-2 rounded w-40"
+            placeholder="Username"
+          />
+
+          <input
+            value={points}
+            onChange={(e) => setPoints(e.target.value ? Number(e.target.value) : "")}
+            className="border px-3 py-2 rounded w-32"
+            placeholder="Points"
+            type="number"
+          />
+
+          <Button onClick={updatePoints} className="bg-blue-600 text-white">
+            Update
+          </Button>
+        </div>
+      </div>
+
+      {/* Leaderboard Table */}
+      <h2 className="text-xl font-semibold mb-2">Leaderboard</h2>
 
       <table className="w-full border-collapse">
         <thead>
-          <tr className="border-b">
-            <th className="p-2 text-left">User</th>
-            <th className="p-2 text-left">Email</th>
-            <th className="p-2 text-left">Points</th>
-            <th className="p-2">Action</th>
+          <tr className="bg-gray-200 text-left">
+            <th className="p-2 border">User</th>
+            <th className="p-2 border">Points</th>
           </tr>
         </thead>
-
         <tbody>
-          {users.map((u) => (
-            <tr key={u.id} className="border-b">
-              <td className="p-2">{u.name || "(No Name)"}</td>
-              <td className="p-2">{u.email}</td>
-              <td className="p-2">
-                <input
-                  type="number"
-                  defaultValue={u.points}
-                  className="border p-1 rounded w-24"
-                  onChange={(e) => (u._newPoints = e.target.value)}
-                />
-              </td>
-              <td className="p-2">
-                <button
-                  onClick={() =>
-                    updatePoints(u.id, u._newPoints ?? u.points)
-                  }
-                  className="bg-blue-600 text-white px-3 py-1 rounded"
-                >
-                  Save
-                </button>
-              </td>
+          {leaderboard.map((row: any, i) => (
+            <tr key={i} className="even:bg-gray-50">
+              <td className="p-2 border">{row.username}</td>
+              <td className="p-2 border">{row.points}</td>
             </tr>
           ))}
         </tbody>
