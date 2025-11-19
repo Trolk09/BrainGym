@@ -6,9 +6,8 @@ import { Input } from "@/components/ui/input";
 export default function Admin() {
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState("");
-  const [pointsToAdd, setPointsToAdd] = useState("");
+  const [pointsToChange, setPointsToChange] = useState("");
 
-  // Load leaderboard from storage
   const loadLeaderboard = () => {
     const data = JSON.parse(localStorage.getItem("leaderboard") || "[]");
     setUsers(data);
@@ -18,29 +17,32 @@ export default function Admin() {
     loadLeaderboard();
   }, []);
 
-  // Clear leaderboard
   const handleClear = () => {
     localStorage.setItem("leaderboard", "[]");
     loadLeaderboard();
   };
 
-  // Add points to a selected user
-  const handleAddPoints = () => {
-    const amount = Number(pointsToAdd);
+  const updatePoints = (isAdding: boolean) => {
+    const amount = Number(pointsToChange);
     if (!selectedUser || isNaN(amount) || amount <= 0) return;
 
     let leaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]");
     const user = leaderboard.find((u: any) => u.username === selectedUser);
 
     if (user) {
-      user.points += amount;
+      if (isAdding) {
+        user.points += amount;
+      } else {
+        user.points -= amount;
+        if (user.points < 0) user.points = 0; // prevent negative points
+      }
     }
 
     leaderboard.sort((a: any, b: any) => b.points - a.points);
 
     localStorage.setItem("leaderboard", JSON.stringify(leaderboard));
 
-    setPointsToAdd("");
+    setPointsToChange("");
     loadLeaderboard();
   };
 
@@ -67,9 +69,9 @@ export default function Admin() {
         ))}
       </Card>
 
-      {/* ADD POINTS */}
+      {/* ADD / SUBTRACT POINTS */}
       <Card className="p-6 space-y-4">
-        <h2 className="text-xl font-bold">Add Points to User</h2>
+        <h2 className="text-xl font-bold">Modify User Points</h2>
 
         <select
           value={selectedUser}
@@ -87,13 +89,23 @@ export default function Admin() {
         <Input
           type="number"
           placeholder="Enter points"
-          value={pointsToAdd}
-          onChange={(e) => setPointsToAdd(e.target.value)}
+          value={pointsToChange}
+          onChange={(e) => setPointsToChange(e.target.value)}
         />
 
-        <Button onClick={handleAddPoints} className="w-full">
-          Add Points
-        </Button>
+        <div className="flex gap-4">
+          <Button onClick={() => updatePoints(true)} className="w-1/2">
+            Add Points
+          </Button>
+
+          <Button
+            onClick={() => updatePoints(false)}
+            variant="destructive"
+            className="w-1/2"
+          >
+            Subtract Points
+          </Button>
+        </div>
       </Card>
 
       {/* CLEAR LEADERBOARD */}
