@@ -7,6 +7,7 @@ export default function Admin() {
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState("");
   const [pointsToChange, setPointsToChange] = useState("");
+  const [newUsername, setNewUsername] = useState("");
 
   const loadLeaderboard = () => {
     const data = JSON.parse(localStorage.getItem("leaderboard") || "[]");
@@ -34,7 +35,7 @@ export default function Admin() {
         user.points += amount;
       } else {
         user.points -= amount;
-        if (user.points < 0) user.points = 0; // prevent negative points
+        if (user.points < 0) user.points = 0;
       }
     }
 
@@ -43,6 +44,30 @@ export default function Admin() {
     localStorage.setItem("leaderboard", JSON.stringify(leaderboard));
 
     setPointsToChange("");
+    loadLeaderboard();
+  };
+
+  // ➕ ADD NEW USER
+  const addUser = () => {
+    if (!newUsername.trim()) return;
+
+    let leaderboard = JSON.parse(localStorage.getItem("leaderboard") || "[]");
+
+    // avoid duplicates
+    if (leaderboard.find((u: any) => u.username === newUsername)) {
+      alert("User already exists!");
+      return;
+    }
+
+    leaderboard.push({
+      username: newUsername,
+      points: 0,
+      ip: "Unknown",
+    });
+
+    localStorage.setItem("leaderboard", JSON.stringify(leaderboard));
+
+    setNewUsername("");
     loadLeaderboard();
   };
 
@@ -67,6 +92,22 @@ export default function Admin() {
             <span>{u.ip || "Unknown"}</span>
           </div>
         ))}
+      </Card>
+
+      {/* ➕ ADD USER */}
+      <Card className="p-6 space-y-4">
+        <h2 className="text-xl font-bold">Add New User</h2>
+
+        <Input
+          type="text"
+          placeholder="Enter username"
+          value={newUsername}
+          onChange={(e) => setNewUsername(e.target.value)}
+        />
+
+        <Button onClick={addUser} className="w-full">
+          Create User
+        </Button>
       </Card>
 
       {/* ADD / SUBTRACT POINTS */}
